@@ -1,51 +1,49 @@
 use bevy::prelude::*;
-pub struct HelloPlugin;
+use bevy_spritefusion::prelude::*;
+
+// https://github.com/Hugo-Dz/bevy_spritefusion
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
-        .add_plugins(HelloPlugin)
+        .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
+        .add_plugins(SpriteFusionPlugin)
+        .add_systems(Startup, spawn_map)
+        .add_systems(Update, print_collectibles)
         .run();
 }
 
-#[derive(Component)]
-struct Person;
-
-#[derive(Component)]
-struct Name(String);
-
-#[derive(Resource)]
-struct GreetTimer(Timer);
-
-fn add_people(mut commands: Commands) {
-    commands.spawn((Person, Name("Julian Zapata".to_string())));
-    commands.spawn((Person, Name("Ian Zapata".to_string())));
+fn spawn_map(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.spawn((
+        Camera2d,
+        Transform::from_xyz(300.0, 50.0, 0.0),
+        Projection::Orthographic(OrthographicProjection {
+            scale: 0.5,
+            ..OrthographicProjection::default_2d()
+        }),
+    ));
+    commands.spawn(SpriteFusionBundle {
+        map: SpriteFusionMapHandle(asset_server.load("map.json")),  
+        tileset: SpriteFusionTilesetHandle(asset_server.load("spritesheet.png")),
+        ..default()
+    });
 }
 
-fn greet_people(time: Res<Time>, mut timer: ResMut<GreetTimer>, query: Query<&Name, With<Person>>) {
-
-    // update our timer with the time elapsed since the last update
-    // if that caused the timer to finish, we say hello to everyone
-    if (timer.0.tick(time.delta()).just_finished()) {
-        for name in &query {
-            println!("hello {}!", name.0)
-        }
+/// Access the tile custom attributes you can set in Sprite Fusion.
+fn print_collectibles(query: Query<(&TilePos, &TileAttributes)>, mut has_run: Local<bool>) {
+    if query.is_empty() || *has_run {
+        return;
     }
-}
+    *has_run = true;
 
-fn update_people(mut query: Query<&mut Name, With<Person>>) {
-    for mut name in &mut query {
-        if name.0 == "Julian Zapata" {
-            name.0 = "Julian ZB".to_string();
-            break;
+    info!("Tiles with attributes:");
+    for (pos, attrs) in query.iter() {
+        if let Some(name) = attrs.get_str("name") {
+            let value = attrs.get_i64("value").unwrap_or(0);
+            let is_collectible = attrs.get_bool("isCollectible").unwrap_or(false);
+            info!(
+                "  - '{}' at ({}, {}), value: {}, collectible: {}",
+                name, pos.x, pos.y, value, is_collectible
+            );
         }
-    }
-}
-
-impl Plugin for HelloPlugin {
-    fn build(&self, app: &mut App) {
-        app.insert_resource(GreetTimer(Timer::from_seconds(2.0, TimerMode::Repeating)));
-        app.add_systems(Startup, add_people);
-        app.add_systems(Update, (update_people, greet_people).chain());
     }
 }
