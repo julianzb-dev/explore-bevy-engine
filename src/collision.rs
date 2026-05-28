@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use bevy::ecs::query::QueryFilter;
+use bevy::prelude::*;
 
 #[derive(Component)]
 pub struct Collider {
@@ -11,17 +11,24 @@ pub struct Solid;
 
 pub fn collides_at<F: QueryFilter>(
     position: Vec3,
+    scale: Vec3,
     collider: &Collider,
     solids: &Query<(&Transform, &Collider), F>,
 ) -> bool {
+    let size = scaled_size(collider.size, scale);
+
     solids.iter().any(|(solid_transform, solid_collider)| {
         aabb_intersects(
             position.truncate(),
-            collider.size,
+            size,
             solid_transform.translation.truncate(),
-            solid_collider.size,
+            scaled_size(solid_collider.size, solid_transform.scale),
         )
     })
+}
+
+fn scaled_size(size: Vec2, scale: Vec3) -> Vec2 {
+    size * Vec2::new(scale.x.abs(), scale.y.abs())
 }
 
 fn aabb_intersects(a_position: Vec2, a_size: Vec2, b_position: Vec2, b_size: Vec2) -> bool {
