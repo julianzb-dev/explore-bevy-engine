@@ -1,10 +1,13 @@
 mod animation;
+mod collision;
+mod map;
 mod player;
 mod window;
 
 use animation::execute_animations;
 use bevy::prelude::*;
-use player::{change_direction, setup_player};
+use map::setup_map;
+use player::{change_direction, move_player, setup_player};
 use window::window_plugin;
 
 fn main() {
@@ -14,7 +17,7 @@ fn main() {
                 .set(window_plugin())
                 .set(ImagePlugin::default_nearest()),
         )
-        .add_systems(Startup, setup_player)
-        .add_systems(Update, (change_direction, execute_animations).chain())
+        .add_systems(Startup, (setup_player, setup_map))
+        .add_systems(Update, (change_direction, move_player, execute_animations).chain())
         .run();
 }
