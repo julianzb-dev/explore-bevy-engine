@@ -1,7 +1,8 @@
+use avian2d::math::{AdjustPrecision, Scalar, Vector};
+use avian2d::prelude::*;
 use bevy::prelude::*;
 
 use crate::animation::{AsepriteAnimation, Direction, load_aseprite_animation};
-use crate::collision::{Collider, Solid, collides_at, scaled_collider_size};
 use crate::map::{BLOCK_POSITION, BLOCK_SIZE};
 
 // const IDLE_BACK_PATH: &str = "assets/Swordsman_lvl1_Idle_back.aseprite";
@@ -9,22 +10,25 @@ const IDLE_BACK_PATH: &str = "assets/idle_001.aseprite";
 //const IDLE_FRONT_PATH: &str = "assets/Swordsman_lvl1_Idle_front.aseprite";
 const IDLE_FRONT_PATH: &str = "assets/idle_001.aseprite";
 const IDLE_SIDE_PATH: &str = "assets/idle_001.aseprite";
-const PLAYER_COLLIDER_SIZE: Vec2 = Vec2::new(45.0, 68.0);
+const PLAYER_BODY_COLLIDER_SIZE: Vec2 = Vec2::new(18.0, 68.0);
 const SPRITE_SCALE: f32 = 1.0;
 const PLAYER_SPEED: f32 = 160.0;
-const GRAVITY: f32 = 1500.0;
 const JUMP_SPEED: f32 = 500.0;
 const JUMP_BUFFER_SECONDS: f32 = 0.1;
+const GROUND_SENSOR_WIDTH: f32 = 16.0;
+const GROUND_SENSOR_HEIGHT: f32 = 4.0;
+const GROUND_SENSOR_DISTANCE: f32 = 4.0;
 
 #[derive(Component)]
 pub struct Player;
 
 #[derive(Component, Default)]
 pub struct PlayerPhysics {
-    velocity: Vec2,
-    grounded: bool,
     jump_buffer: f32,
 }
+
+#[derive(Component)]
+pub struct Grounded;
 
 pub fn setup_player(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     commands.spawn(Camera2d);
@@ -41,21 +45,33 @@ pub fn setup_player(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     sprite.flip_x = should_flip_sprite(animation.direction);
     let player_start = Vec3::new(
         BLOCK_POSITION.x,
-        BLOCK_POSITION.y + (BLOCK_SIZE.y / 2.0) + (PLAYER_COLLIDER_SIZE.y * SPRITE_SCALE / 2.0),
+        BLOCK_POSITION.y
+            + (BLOCK_SIZE.y / 2.0)
+            + (PLAYER_BODY_COLLIDER_SIZE.y * SPRITE_SCALE / 2.0),
         0.0,
     );
 
     commands.spawn((
         sprite,
         Transform::from_translation(player_start).with_scale(Vec3::splat(SPRITE_SCALE)),
-        Collider {
-            size: PLAYER_COLLIDER_SIZE,
-        },
+        RigidBody::Dynamic,
+        Collider::rectangle(PLAYER_BODY_COLLIDER_SIZE.x, PLAYER_BODY_COLLIDER_SIZE.y),
+        ShapeCaster::new(
+            Collider::rectangle(GROUND_SENSOR_WIDTH, GROUND_SENSOR_HEIGHT),
+            Vector::new(
+                0.0,
+                -(PLAYER_BODY_COLLIDER_SIZE.y / 2.0) - (GROUND_SENSOR_HEIGHT / 2.0),
+            ),
+            0.0,
+            Dir2::NEG_Y,
+        )
+        .with_max_distance(GROUND_SENSOR_DISTANCE),
+        LockedAxes::ROTATION_LOCKED,
+        LinearVelocity::ZERO,
+        Friction::ZERO.with_combine_rule(CoefficientCombine::Min),
+        Restitution::ZERO.with_combine_rule(CoefficientCombine::Min),
         Player,
-        PlayerPhysics {
-            grounded: true,
-            ..default()
-        },
+        PlayerPhysics::default(),
         animation,
     ));
 }
@@ -63,50 +79,34 @@ pub fn setup_player(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 pub fn move_player(
     time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    solids: Query<(&Transform, &Collider), (With<Solid>, Without<Player>)>,
-    mut query: Query<
-        (&mut Transform, &Collider, &mut PlayerPhysics),
-        (With<Player>, Without<Solid>),
-    >,
+    mut query: Query<(&mut LinearVelocity, &mut PlayerPhysics, Option<&Grounded>), With<Player>>,
 ) {
-    let delta_secs = time.delta_secs();
-    let horizontal_movement = horizontal_direction(&keyboard) * PLAYER_SPEED * delta_secs;
+    let delta_secs = time.delta_secs_f64().adjust_precision();
+    let horizontal_velocity = horizontal_direction(&keyboard) * PLAYER_SPEED;
 
-    for (mut transform, collider, mut physics) in &mut query {
+    for (mut velocity, mut physics, grounded) in &mut query {
         physics.jump_buffer = (physics.jump_buffer - delta_secs).max(0.0);
         if keyboard.just_pressed(KeyCode::Space) {
             physics.jump_buffer = JUMP_BUFFER_SECONDS;
         }
 
-        if physics.grounded && physics.jump_buffer > 0.0 {
-            physics.velocity.y = JUMP_SPEED;
-            physics.grounded = false;
+        velocity.x = horizontal_velocity;
+
+        if grounded.is_some() && physics.jump_buffer > 0.0 {
+            velocity.y = JUMP_SPEED;
             physics.jump_buffer = 0.0;
         }
+    }
+}
 
-        physics.grounded = false;
-        physics.velocity.y -= GRAVITY * delta_secs;
+pub fn update_grounded(mut commands: Commands, query: Query<(Entity, &ShapeHits), With<Player>>) {
+    for (entity, hits) in &query {
+        let grounded = hits.iter().any(|hit| hit.normal1.y > 0.7);
 
-        let next_x = transform.translation + Vec3::new(horizontal_movement, 0.0, 0.0);
-        if !collides_at(next_x, transform.scale, collider, &solids) {
-            transform.translation = next_x;
-        }
-
-        let vertical_movement = physics.velocity.y * delta_secs;
-        let vertical_collision =
-            resolve_vertical_movement(&mut transform, collider, vertical_movement, &solids);
-
-        if let Some(collision) = vertical_collision {
-            if collision == VerticalCollision::Ground {
-                physics.grounded = true;
-            }
-            physics.velocity.y = 0.0;
-
-            if physics.grounded && physics.jump_buffer > 0.0 {
-                physics.velocity.y = JUMP_SPEED;
-                physics.grounded = false;
-                physics.jump_buffer = 0.0;
-            }
+        if grounded {
+            commands.entity(entity).insert(Grounded);
+        } else {
+            commands.entity(entity).remove::<Grounded>();
         }
     }
 }
@@ -134,7 +134,7 @@ fn should_flip_sprite(direction: Direction) -> bool {
     direction == Direction::Right
 }
 
-fn horizontal_direction(keyboard: &ButtonInput<KeyCode>) -> f32 {
+fn horizontal_direction(keyboard: &ButtonInput<KeyCode>) -> Scalar {
     let mut direction = 0.0;
 
     if keyboard.any_pressed([KeyCode::ArrowLeft, KeyCode::KeyA]) {
@@ -145,82 +145,6 @@ fn horizontal_direction(keyboard: &ButtonInput<KeyCode>) -> f32 {
     }
 
     direction
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum VerticalCollision {
-    Ground,
-    Ceiling,
-}
-
-fn resolve_vertical_movement<F: bevy::ecs::query::QueryFilter>(
-    transform: &mut Transform,
-    collider: &Collider,
-    movement_y: f32,
-    solids: &Query<(&Transform, &Collider), F>,
-) -> Option<VerticalCollision> {
-    if movement_y == 0.0 {
-        return None;
-    }
-
-    let player_size = scaled_collider_size(collider, transform.scale);
-    let player_half = player_size / 2.0;
-    let current_position = transform.translation;
-    let next_y = current_position.y + movement_y;
-    let current_bottom = current_position.y - player_half.y;
-    let current_top = current_position.y + player_half.y;
-    let next_bottom = next_y - player_half.y;
-    let next_top = next_y + player_half.y;
-
-    if movement_y < 0.0 {
-        let mut highest_ground = None;
-
-        for (solid_transform, solid_collider) in solids {
-            let solid_size = scaled_collider_size(solid_collider, solid_transform.scale);
-            let solid_half = solid_size / 2.0;
-            let solid_left = solid_transform.translation.x - solid_half.x;
-            let solid_right = solid_transform.translation.x + solid_half.x;
-            let solid_top = solid_transform.translation.y + solid_half.y;
-            let overlaps_x = current_position.x - player_half.x < solid_right
-                && current_position.x + player_half.x > solid_left;
-
-            if overlaps_x && current_bottom >= solid_top && next_bottom <= solid_top {
-                highest_ground =
-                    Some(highest_ground.map_or(solid_top, |ground: f32| ground.max(solid_top)));
-            }
-        }
-
-        if let Some(ground_y) = highest_ground {
-            transform.translation.y = ground_y + player_half.y;
-            return Some(VerticalCollision::Ground);
-        }
-    } else {
-        let mut lowest_ceiling = None;
-
-        for (solid_transform, solid_collider) in solids {
-            let solid_size = scaled_collider_size(solid_collider, solid_transform.scale);
-            let solid_half = solid_size / 2.0;
-            let solid_left = solid_transform.translation.x - solid_half.x;
-            let solid_right = solid_transform.translation.x + solid_half.x;
-            let solid_bottom = solid_transform.translation.y - solid_half.y;
-            let overlaps_x = current_position.x - player_half.x < solid_right
-                && current_position.x + player_half.x > solid_left;
-
-            if overlaps_x && current_top <= solid_bottom && next_top >= solid_bottom {
-                lowest_ceiling = Some(
-                    lowest_ceiling.map_or(solid_bottom, |ceiling: f32| ceiling.min(solid_bottom)),
-                );
-            }
-        }
-
-        if let Some(ceiling_y) = lowest_ceiling {
-            transform.translation.y = ceiling_y - player_half.y;
-            return Some(VerticalCollision::Ceiling);
-        }
-    }
-
-    transform.translation.y = next_y;
-    None
 }
 
 fn pressed_direction(keyboard: &ButtonInput<KeyCode>) -> Option<Direction> {
