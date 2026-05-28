@@ -18,6 +18,9 @@ fn main() {
                 .set(ImagePlugin::default_nearest()),
         )
         .add_systems(Startup, (setup_player, setup_map))
-        .add_systems(Update, (change_direction, move_player, execute_animations).chain())
+        .add_systems(
+            Update,
+            (change_direction, move_player, execute_animations).chain(),
+        )
         .run();
 }

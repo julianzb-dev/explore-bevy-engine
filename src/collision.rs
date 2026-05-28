@@ -15,20 +15,20 @@ pub fn collides_at<F: QueryFilter>(
     collider: &Collider,
     solids: &Query<(&Transform, &Collider), F>,
 ) -> bool {
-    let size = scaled_size(collider.size, scale);
+    let size = scaled_collider_size(collider, scale);
 
     solids.iter().any(|(solid_transform, solid_collider)| {
         aabb_intersects(
             position.truncate(),
             size,
             solid_transform.translation.truncate(),
-            scaled_size(solid_collider.size, solid_transform.scale),
+            scaled_collider_size(solid_collider, solid_transform.scale),
         )
     })
 }
 
-fn scaled_size(size: Vec2, scale: Vec3) -> Vec2 {
-    size * Vec2::new(scale.x.abs(), scale.y.abs())
+pub fn scaled_collider_size(collider: &Collider, scale: Vec3) -> Vec2 {
+    collider.size * Vec2::new(scale.x.abs(), scale.y.abs())
 }
 
 fn aabb_intersects(a_position: Vec2, a_size: Vec2, b_position: Vec2, b_size: Vec2) -> bool {

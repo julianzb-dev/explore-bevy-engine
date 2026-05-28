@@ -4,11 +4,19 @@ use crate::collision::{Collider, Solid};
 
 pub const BLOCK_SIZE: Vec2 = Vec2::new(64.0, 64.0);
 pub const BLOCK_POSITION: Vec3 = Vec3::new(120.0, 0.0, 0.0);
+pub const BLOCK_POSITION_TEST: Vec3 = Vec3::new(-50.0, 0.0, 0.0);
 
 pub fn setup_map(mut commands: Commands) {
     commands.spawn((
         Sprite::from_color(Color::srgb(0.35, 0.28, 0.22), BLOCK_SIZE),
         Transform::from_translation(BLOCK_POSITION),
+        Collider { size: BLOCK_SIZE },
+        Solid,
+    ));
+    
+    commands.spawn((
+        Sprite::from_color(Color::srgb(0.35, 0.28, 0.22), BLOCK_SIZE),
+        Transform::from_translation(BLOCK_POSITION_TEST),
         Collider { size: BLOCK_SIZE },
         Solid,
     ));
