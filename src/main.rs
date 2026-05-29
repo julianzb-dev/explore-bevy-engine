@@ -25,12 +25,13 @@ fn main() {
         .add_systems(
             Update,
             (
-                change_direction,
-                update_grounded,
+                update_grounded.before(move_player),
                 move_player,
+                change_direction
+                    .after(move_player)
+                    .before(execute_animations),
                 execute_animations,
-            )
-                .chain(),
+            ),
         )
         .run();
 }
